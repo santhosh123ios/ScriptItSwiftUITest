@@ -14,6 +14,11 @@ struct ContentView: View {
         let description: String
     }
     
+    @State private var scrollOffset: CGFloat = 0
+    @State private var scrollPercentage: CGFloat = 0
+    
+    @State private var showSearchBar = false
+    
     @State private var selectedImageIndex = 0
     @State private var searchText = ""
     @State private var showStatsSheet = false
@@ -36,61 +41,101 @@ struct ContentView: View {
             $0.name.lowercased().contains(searchText.lowercased())
         }
     }
-
+    
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            VStack {
-                // Image Carousel
-                TabView(selection: $selectedImageIndex) {
-                    ForEach(images.indices, id: \.self) { index in
-                        AsyncImage(url: URL(string: images[index])) { phase in
-                            switch phase {
-                            case .empty:
-                                ProgressView().frame(height: 200)
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(height: 200)
-                                    .clipped()
-                            case .failure:
-                                Color.red.frame(height: 200)
-                            @unknown default:
-                                EmptyView()
-                            }
-                        }
-                        .tag(index)
-                    }
+            VStack(spacing: 0) {
+                if showSearchBar {
+                    SearchBarView(text: $searchText)
+                        .background(Color.white)
+                        .zIndex(1)
                 }
-                .frame(height: 200)
-                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .automatic))
                 
-                List {
-                    Section(header: SearchBarView(text: $searchText)) {
-                        ForEach(filteredItems, id: \.self) { item in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(item.name)
-                                    .font(.headline)
-                                Text(item.description)
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        // Image Carousel
+                        TabView(selection: $selectedImageIndex) {
+                            ForEach(images.indices, id: \.self) { index in
+                                AsyncImage(url: URL(string: images[index])) { phase in
+                                    switch phase {
+                                    case .empty:
+                                        ProgressView().frame(height: 200)
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(height: 200)
+                                            .clipped()
+                                    case .failure:
+                                        Color.red.frame(height: 200)
+                                    @unknown default:
+                                        EmptyView()
+                                    }
+                                }
+                                .tag(index)
                             }
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.teal.opacity(0.2))
-                            .cornerRadius(10)
-                            .padding(.horizontal)
-                            .padding(.bottom, 15)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
                         }
+                        .frame(height: 200)
+                        .tabViewStyle(PageTabViewStyle(indexDisplayMode: .automatic))
+                        
+                        // Search Bar
+                        SearchBarView(text: $searchText)
+                        
+                        // List with square image
+                        LazyVStack(spacing: 15) {
+                            ForEach(filteredItems, id: \.self) { item in
+                                HStack(alignment: .top, spacing: 12) {
+                                    AsyncImage(url: URL(string: "https://picsum.photos/seed/\(item.name)/60")) { image in
+                                        image.resizable()
+                                    } placeholder: {
+                                        ProgressView()
+                                    }
+                                    .aspectRatio(1, contentMode: .fill)
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(item.name)
+                                            .font(.headline)
+                                        Text(item.description)
+                                            .font(.subheadline)
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.teal.opacity(0.2))
+                                .cornerRadius(10)
+                                .padding(.horizontal)
+                            }
+                        }
+                        .padding(.bottom, 20)
+                        
+                        // Track scroll position
+                        GeometryReader { geo in
+                            Color.clear
+                                .preference(key: ScrollOffsetPreferenceKey.self,
+                                            value: geo.frame(in: .named("scroll")).minY)
+                        }
+                        .frame(height: 0)
+                    }
+                    .padding()
+                }
+                .coordinateSpace(name: "scroll")
+                .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                    scrollOffset = -value
+                    let totalScrollableHeight: CGFloat = 50 * 100 - UIScreen.main.bounds.height
+                    let percentage = min(max(scrollOffset / totalScrollableHeight, 0), 1)
+                    scrollPercentage = percentage
+                    
+                    withAnimation {
+                        //showSearchBar = value <= 2010
+                        showSearchBar = value <= 1900
                     }
                 }
-                .listStyle(PlainListStyle())
-                .padding(.bottom, 8)
             }
             
-            // Floating Action Button
+            //Floating Action Button
             Button(action: {
                 showStatsSheet.toggle()
             }) {
@@ -102,7 +147,7 @@ struct ContentView: View {
                     .clipShape(Circle())
                     .shadow(radius: 4)
             }
-            .padding()
+            .padding(20) // Padding from bottom and trailing
             .sheet(isPresented: $showStatsSheet) {
                 StatsSheetView(items: allItems[selectedImageIndex])
             }
@@ -110,7 +155,15 @@ struct ContentView: View {
     }
 }
 
-struct StatsSheetView: View {
+    struct ScrollOffsetPreferenceKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = nextValue()
+        }
+    }
+
+    struct StatsSheetView: View {
     let items: [ContentView.Item]
     
     var characterStats: [(char: Character, count: Int)] {
@@ -128,6 +181,7 @@ struct StatsSheetView: View {
             
             ForEach(characterStats, id: \.char) { stat in
                 HStack {
+                    
                     Text("\(stat.char) =")
                     Spacer()
                     Text("\(stat.count)")
@@ -156,12 +210,9 @@ struct SearchBarView: View {
         .background(Color(UIColor.systemGray5))
         .cornerRadius(10)
         .padding(.horizontal)
-        .padding(.bottom, 10)
+        .padding(.bottom, 0)
         .frame(width: UIScreen.main.bounds.width)
         .padding(.bottom, 10)
     }
 }
 
-#Preview {
-    ContentView()
-}
